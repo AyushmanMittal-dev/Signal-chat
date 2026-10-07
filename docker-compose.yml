@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------
+  # Primary Database: PostgreSQL
+  # ---------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: signal_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-signal_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SuperSecretSignalPass2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-signal_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-signal_admin} -d ${POSTGRES_DB:-signal_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - signal_internal
+
+  # ---------------------------------------------
+  # High-Speed Distributed Cache & Broker: Redis
+  # ---------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: signal_redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-SignalRedisSecure2026!}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-SignalRedisSecure2026!}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - signal_internal
+
+  # ---------------------------------------------
+  # Monolith / Gateway Backend Service
+  # ---------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: signal_backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-signal_admin}:${POSTGRES_PASSWORD:-SuperSecretSignalPass2026!}@postgres:5432/${POSTGRES_DB:-signal_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-SignalRedisSecure2026!}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-signal-super-secret-production-jwt-key-32chars-min}
+      ENVIRONMENT: production
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - signal_internal
+
+  # ---------------------------------------------
+  # Frontend Client
+  # ---------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: signal_frontend
+    restart: always
+    ports:
+      - "8443:80"
+    depends_on:
+      - backend
+    networks:
+      - signal_internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  signal_internal:
+    driver: bridge

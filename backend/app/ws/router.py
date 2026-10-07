@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
@@ -72,12 +73,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 )
 
                 # Send ack back to sender
+                created_iso = msg.created_at.replace(tzinfo=timezone.utc).isoformat() if msg.created_at and msg.created_at.tzinfo is None else msg.created_at.isoformat()
                 await websocket.send_json({
                     "type": "message.ack",
                     "data": {
                         "client_id": client_id,
                         "message_id": msg.id,
-                        "created_at": msg.created_at.isoformat(),
+                        "created_at": created_iso,
                         "status": "sent"
                     }
                 })

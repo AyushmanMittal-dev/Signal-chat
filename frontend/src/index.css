@@ -67,9 +67,11 @@ button { border: 0; cursor: pointer; }
 .conversation-row.active { background: var(--selected); }
 .conversation-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .conversation-top, .conversation-bottom { display: flex; align-items: center; min-width: 0; }
-.conversation-top { gap: 8px; }
+.conversation-top { gap: 8px; justify-content: space-between; }
 .conversation-top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-size: 15px; }
+.conversation-top-meta { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .conversation-top time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pin-badge { display: inline-flex; align-items: center; color: var(--primary); transform: rotate(45deg); opacity: 0.9; }
 .conversation-bottom { gap: 7px; color: var(--muted); font-size: 13px; }
 .conversation-bottom > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .conversation-bottom b { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary); color: white; font-size: 10px; }
@@ -94,6 +96,7 @@ button { border: 0; cursor: pointer; }
 .mine .bubble { background: var(--bubble-out); color: white; }
 .mine.clustered .bubble { border-top-right-radius: 6px; }
 .theirs.clustered .bubble { border-top-left-radius: 6px; }
+.sender-author { display: block; font-size: 11px; font-weight: 700; color: #10b981; margin-bottom: 2px; }
 .message-meta { display: inline-flex; align-items: center; gap: 3px; float: right; margin: 7px 0 -2px 10px; color: color-mix(in srgb, currentColor 65%, transparent); font-size: 10px; line-height: 13px; font-variant-numeric: tabular-nums; }
 .receipt { position: relative; width: 18px; display: inline-flex; }
 .receipt .icon + .icon { margin-left: -7px; }

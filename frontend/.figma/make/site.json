@@ -1,4 +1,5 @@
 {
+  "title": "Signal Clone",
   "description": "Offers a secure, user-friendly messaging platform with a sleek interface inspired by Signal, enabling private and seamless communication for users.",
   "robots": {
     "index": false

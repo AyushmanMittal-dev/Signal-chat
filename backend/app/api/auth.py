@@ -45,6 +45,14 @@ def verify_otp(payload: VerifyOTPRequest, db: Session = Depends(get_db)):
         username = None if is_phone else identifier.lstrip("@")
         display_name = identifier if is_phone else identifier.lstrip("@").capitalize()
         user = repo.create_user(db, phone=phone, username=username, display_name=display_name)
+        # Auto-connect new user with existing users for immediate out-of-the-box liveness
+        existing_users = db.query(User).filter(User.id != user.id).limit(10).all()
+        for eu in existing_users:
+            repo.add_contact(db, owner_id=user.id, contact_user_id=eu.id)
+            repo.add_contact(db, owner_id=eu.id, contact_user_id=user.id)
+            # Create direct conversation with Demo User (id=1)
+            if eu.id == 1:
+                repo.get_or_create_direct_conversation(db, user.id, eu.id)
     else:
         user.is_online = True
         db.commit()

@@ -24,6 +24,7 @@ type IconName =
   | "moon"
   | "mute"
   | "phone"
+  | "pin"
   | "plus"
   | "search"
   | "send"
@@ -51,6 +52,7 @@ const iconPaths: Record<IconName, ReactNode> = {
   moon: <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />,
   mute: <><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6" /></>,
   phone: <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.4 19.4 0 0 1-6-6 19.8 19.8 0 0 1-3-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.6 2.8.7a2 2 0 0 1 1.7 2Z" />,
+  pin: <><line x1="12" y1="17" x2="12" y2="22" /><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.77V5a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v5.77a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24Z" /></>,
   plus: <><path d="M12 5v14M5 12h14" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
   send: <><path d="m22 2-7 20-4-9-9-4zM22 2 11 13" /></>,
@@ -95,17 +97,37 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "unread" | "groups">("all");
   const [draft, setDraft] = useState("");
-  const [modal, setModal] = useState<null | "new" | "group" | "settings" | "call" | "safety">(null);
+  const [modal, setModal] = useState<null | "new" | "group" | "settings" | "privacy" | "call" | "safety">(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [toast, setToast] = useState("");
   const [mobileChat, setMobileChat] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Record<number, boolean>>({});
+  const typingTimerRef = useRef<Record<number, any>>({});
+  const myTypingTimerRef = useRef<any>(null);
   const [authValue, setAuthValue] = useState("+15550124836");
   const [otp, setOtp] = useState("123456");
   const [profileName, setProfileName] = useState("Demo User");
   const [safetyNumber, setSafetyNumber] = useState("");
   const [isVerified, setIsVerified] = useState(false);
+  const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("signal_pinned_chats") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const togglePin = (chatId: number) => {
+    setPinnedIds((prev) => {
+      const next = prev.includes(chatId) ? prev.filter((id) => id !== chatId) : [...prev, chatId];
+      try {
+        localStorage.setItem("signal_pinned_chats", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const messageEnd = useRef<HTMLDivElement>(null);
 
   // Initialize session
@@ -164,12 +186,15 @@ export default function App() {
             const peer = activeConv?.members.find((m: any) => m.user_id !== currentUser.id);
             if (peer) {
               const peerKeyObj = await api.getUserPublicKey(peer.user_id);
-              const aesKey = await deriveSharedAesKey(currentUser.id, peerKeyObj.public_key_jwk);
-              const plain = await decryptText(msg.ciphertext, msg.iv, aesKey);
-              return { ...msg, body: plain };
+              if (peerKeyObj?.public_key_jwk) {
+                const aesKey = await deriveSharedAesKey(currentUser.id, peerKeyObj.public_key_jwk);
+                const plain = await decryptText(msg.ciphertext, msg.iv, aesKey);
+                return { ...msg, body: plain };
+              }
             }
           } catch (e) {
-            return { ...msg, body: "[Decryption Failed]" };
+            console.warn("Message history decryption fallback:", e);
+            return { ...msg, body: msg.body || "[Encrypted Message]" };
           }
         }
         return msg;
@@ -198,15 +223,23 @@ export default function App() {
             const peer = activeConv?.members.find((m: any) => m.user_id !== currentUser.id);
             if (peer) {
               const peerKeyObj = await api.getUserPublicKey(peer.user_id);
-              const aesKey = await deriveSharedAesKey(currentUser.id, peerKeyObj.public_key_jwk);
-              const plain = await decryptText(msg.ciphertext, msg.iv, aesKey);
-              displayMsg = { ...msg, body: plain };
+              if (peerKeyObj?.public_key_jwk) {
+                const aesKey = await deriveSharedAesKey(currentUser.id, peerKeyObj.public_key_jwk);
+                const plain = await decryptText(msg.ciphertext, msg.iv, aesKey);
+                displayMsg = { ...msg, body: plain };
+              }
             }
           } catch (e) {
-            displayMsg = { ...msg, body: "[Decryption Failed]" };
+            console.warn("Incoming message decryption fallback:", e);
+            displayMsg = { ...msg, body: msg.body || "[Encrypted Message]" };
           }
         }
-        setMessages((prev) => [...prev, displayMsg]);
+        setMessages((prev) => {
+          if (prev.some((m) => (displayMsg.id && m.id === displayMsg.id) || (displayMsg.client_id && m.client_id === displayMsg.client_id))) {
+            return prev.map((m) => (displayMsg.client_id && m.client_id === displayMsg.client_id) ? { ...m, ...displayMsg } : m);
+          }
+          return [...prev, displayMsg];
+        });
         wsClient.send("message.delivered", { message_id: msg.id });
       }
       loadConversations();
@@ -223,8 +256,33 @@ export default function App() {
 
     const unbindTyping = wsClient.on("typing", (data: any) => {
       if (data.conversation_id === activeId) {
-        setTypingUsers((prev) => ({ ...prev, [data.user_id]: data.is_typing }));
+        if (data.is_typing) {
+          setTypingUsers((prev) => ({ ...prev, [data.user_id]: true }));
+          if (typingTimerRef.current[data.user_id]) {
+            clearTimeout(typingTimerRef.current[data.user_id]);
+          }
+          typingTimerRef.current[data.user_id] = setTimeout(() => {
+            setTypingUsers((prev) => ({ ...prev, [data.user_id]: false }));
+          }, 3000);
+        } else {
+          if (typingTimerRef.current[data.user_id]) {
+            clearTimeout(typingTimerRef.current[data.user_id]);
+          }
+          setTypingUsers((prev) => ({ ...prev, [data.user_id]: false }));
+        }
       }
+    });
+
+    const unbindPresence = wsClient.on("presence", (data: any) => {
+      setConversations((prev) => prev.map((c) => {
+        if (c.type === "direct") {
+          return {
+            ...c,
+            members: c.members.map((m: any) => m.user_id === data.user_id ? { ...m, user: { ...m.user, is_online: data.is_online } } : m)
+          };
+        }
+        return c;
+      }));
     });
 
     return () => {
@@ -232,6 +290,7 @@ export default function App() {
       unbindAck();
       unbindStatus();
       unbindTyping();
+      unbindPresence();
     };
   }, [activeId, screen, currentUser, conversations]);
 
@@ -291,6 +350,7 @@ export default function App() {
           payload = {
             conversation_id: activeId,
             client_id: clientId,
+            body: text,
             ciphertext: encrypted.ciphertext,
             iv: encrypted.iv,
             is_encrypted: true
@@ -301,6 +361,11 @@ export default function App() {
       }
     }
 
+    if (myTypingTimerRef.current) {
+      clearTimeout(myTypingTimerRef.current);
+      myTypingTimerRef.current = null;
+    }
+    wsClient.send("typing.stop", { conversation_id: activeId });
     wsClient.send("message.send", payload);
   }
 
@@ -381,18 +446,37 @@ export default function App() {
         {(["all", "unread", "groups"] as const).map((item) => <button key={item} className={filter === item ? "selected" : ""} onClick={() => setFilter(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}
       </nav>
       <div className="conversation-list">
-        {conversations.map((chat) => {
-          const initials = chat.name ? chat.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "CH";
-          const preview = chat.last_message ? (chat.last_message.body || "[Encrypted Message]") : "No messages yet";
-          const time = chat.last_message ? new Date(chat.last_message.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-          return <button key={chat.id} className={`conversation-row ${chat.id === activeId ? "active" : ""}`} onClick={() => selectConversation(chat.id)}>
-            <Avatar initials={initials} index={chat.id} online={chat.type === "direct" && chat.members.some((m: any) => m.user_id !== currentUser?.id && m.user?.is_online)} />
-            <span className="conversation-copy">
-              <span className="conversation-top"><strong>{chat.name}</strong><time>{time}</time></span>
-              <span className="conversation-bottom"><span>{preview}</span>{chat.unread_count > 0 && <b>{chat.unread_count}</b>}</span>
-            </span>
-          </button>;
-        })}
+        {[...conversations]
+          .sort((a, b) => {
+            const aPinned = pinnedIds.includes(a.id);
+            const bPinned = pinnedIds.includes(b.id);
+            if (aPinned && !bPinned) return -1;
+            if (!aPinned && bPinned) return 1;
+            return 0;
+          })
+          .map((chat) => {
+            const isPinned = pinnedIds.includes(chat.id);
+            const initials = chat.name ? chat.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "CH";
+            const preview = chat.last_message ? (chat.last_message.body || "[Encrypted Message]") : "No messages yet";
+            let chatRawDate = chat.last_message?.created_at;
+            if (typeof chatRawDate === "string" && !chatRawDate.endsWith("Z") && !chatRawDate.includes("+")) {
+              chatRawDate += "Z";
+            }
+            const time = chat.last_message ? new Date(chatRawDate).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+            return <button key={chat.id} className={`conversation-row ${chat.id === activeId ? "active" : ""}`} onClick={() => selectConversation(chat.id)}>
+              <Avatar initials={initials} index={chat.id} online={chat.type === "direct" && chat.members.some((m: any) => m.user_id !== currentUser?.id && m.user?.is_online)} />
+              <span className="conversation-copy">
+                <span className="conversation-top">
+                  <strong>{chat.name}</strong>
+                  <span className="conversation-top-meta">
+                    {isPinned && <span className="pin-badge" title="Pinned conversation"><Icon name="pin" size={13} /></span>}
+                    <time>{time}</time>
+                  </span>
+                </span>
+                <span className="conversation-bottom"><span>{preview}</span>{chat.unread_count > 0 && <b>{chat.unread_count}</b>}</span>
+              </span>
+            </button>;
+          })}
         {conversations.length === 0 && <div className="empty-list"><Icon name="search" /><strong>No conversations found</strong><span>Try another name or filter.</span></div>}
       </div>
       <button className="new-chat-fab" onClick={() => setModal("new")} aria-label="New message"><Icon name="compose" /></button>
@@ -421,9 +505,15 @@ export default function App() {
         <div className="day-pill">Today</div>
         {messages.map((message, index) => {
           const isMine = message.sender_id === currentUser?.id;
-          const time = new Date(message.created_at || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          let rawDate = message.created_at;
+          if (typeof rawDate === "string" && !rawDate.endsWith("Z") && !rawDate.includes("+")) {
+            rawDate += "Z";
+          }
+          const time = new Date(rawDate || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          const senderName = !isMine && active.type === "group" && message.type !== "system" ? (message.sender?.display_name || active.members?.find((m: any) => m.user_id === message.sender_id)?.user?.display_name || `User ${message.sender_id}`) : null;
           return <div key={message.id || message.client_id || index} className={`message-row ${isMine ? "mine" : "theirs"}`}>
             <div className="bubble">
+              {senderName && <span className="sender-author">{senderName}</span>}
               {message.type === "system" ? <span className="system-msg">{message.body}</span> : <span>{message.body}</span>}
               <span className="message-meta">
                 <time>{time}</time>
@@ -454,8 +544,19 @@ export default function App() {
         }} />
         <div className="composer-field">
           <textarea rows={1} value={draft} onChange={(event) => {
-            setDraft(event.target.value);
-            if (activeId) wsClient.send("typing.start", { conversation_id: activeId });
+            const nextVal = event.target.value;
+            setDraft(nextVal);
+            if (activeId) {
+              if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
+              if (nextVal.trim()) {
+                wsClient.send("typing.start", { conversation_id: activeId });
+                myTypingTimerRef.current = setTimeout(() => {
+                  wsClient.send("typing.stop", { conversation_id: activeId });
+                }, 1500);
+              } else {
+                wsClient.send("typing.stop", { conversation_id: activeId });
+              }
+            }
           }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768) { event.preventDefault(); sendMessage(); } }} placeholder="Message" />
           <IconButton icon="emoji" label="Choose emoji" onClick={() => setDraft((value) => `${value} 😊`)} />
         </div>
@@ -477,6 +578,11 @@ export default function App() {
         <button onClick={() => setQuery(active.name)}><span><Icon name="search" /></span>Search</button>
       </div>
       <div className="info-list">
+        <button onClick={() => activeId && togglePin(activeId)}>
+          <span><Icon name="pin" />{activeId && pinnedIds.includes(activeId) ? "Unpin chat" : "Pin chat"}</span>
+          <small>{activeId && pinnedIds.includes(activeId) ? "Pinned" : "Not pinned"}</small>
+          <Icon name="chevron" size={16} />
+        </button>
         <button onClick={handleOpenSafetyNumber}><span><Icon name="lock" />View safety number</span><Icon name="chevron" size={16} /></button>
         <button><span><Icon name="timer" />Disappearing messages</span><small>Off</small><Icon name="chevron" size={16} /></button>
         <button><span><Icon name="bell" />Mute notifications</span><small>Off</small><Icon name="chevron" size={16} /></button>
@@ -509,13 +615,15 @@ export default function App() {
       }
     }} />}
 
-    {modal === "settings" && <Settings user={currentUser} dark={dark} setDark={setDark} onClose={() => setModal(null)} onLogout={() => {
+    {modal === "settings" && <Settings user={currentUser} dark={dark} setDark={setDark} onClose={() => setModal(null)} onPrivacy={() => setModal("privacy")} onLogout={() => {
       api.logout();
       localStorage.removeItem("signal_token");
       wsClient.disconnect();
       setModal(null);
       setScreen("welcome");
     }} />}
+
+    {modal === "privacy" && <PrivacyModal user={currentUser} onClose={() => setModal("settings")} onUserUpdate={(u) => setCurrentUser(u)} />}
 
     {modal === "safety" && <Modal title="Safety Number" onClose={() => setModal(null)}>
       <div className="modal-content safety-content">
@@ -559,6 +667,7 @@ function GroupModal({ onClose, onCreate }: { onClose: () => void; onCreate: (nam
   const [contacts, setContacts] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [name, setName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     api.getContacts().then((c) => setContacts(c.map(item => item.contact_user))).catch(() => {});
@@ -568,11 +677,19 @@ function GroupModal({ onClose, onCreate }: { onClose: () => void; onCreate: (nam
     {step === 1 ? <><p className="modal-helper">Select people to add to this group.</p>
       <div className="contact-list selectable">{contacts.map((contact, index) => <button key={contact.id} onClick={() => setSelectedIds((items) => items.includes(contact.id) ? items.filter((id) => id !== contact.id) : [...items, contact.id])}><Avatar initials={contact.display_name.slice(0, 2).toUpperCase()} index={index} size="sm" /><span><strong>{contact.display_name}</strong><small>Signal contact</small></span><i className={selectedIds.includes(contact.id) ? "checked" : ""}>{selectedIds.includes(contact.id) && <Icon name="check" size={14} />}</i></button>)}</div>
       <button className="primary-button" disabled={!selectedIds.length} onClick={() => setStep(2)}>Next</button></> :
-      <><div className="group-avatar"><Icon name="camera" /></div><label className="field-label">Group name<input autoFocus value={name} maxLength={32} onChange={(event) => setName(event.target.value)} placeholder="Friends, family, team…" /></label><p className="modal-helper">{selectedIds.length + 1} members including you</p><button className="primary-button" disabled={!name.trim()} onClick={() => onCreate(name.trim(), selectedIds)}>Create group</button></>}
+      <><div className="group-avatar"><Icon name="camera" /></div><label className="field-label">Group name<input autoFocus value={name} maxLength={32} onChange={(event) => setName(event.target.value)} placeholder="Friends, family, team…" /></label><p className="modal-helper">{selectedIds.length + 1} members including you</p><button className="primary-button" disabled={!name.trim() || isSubmitting} onClick={async () => {
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+          await onCreate(name.trim(), selectedIds);
+        } finally {
+          setIsSubmitting(false);
+        }
+      }}>{isSubmitting ? "Creating…" : "Create group"}</button></>}
   </div></Modal>;
 }
 
-function Settings({ user, dark, setDark, onClose, onLogout }: { user: any; dark: boolean; setDark: (value: boolean) => void; onClose: () => void; onLogout: () => void }) {
+function Settings({ user, dark, setDark, onClose, onPrivacy, onLogout }: { user: any; dark: boolean; setDark: (value: boolean) => void; onClose: () => void; onPrivacy: () => void; onLogout: () => void }) {
   return <Modal title="Settings" onClose={onClose}><div className="settings-content">
     <div className="settings-profile">
       <Avatar initials={user?.display_name ? user.display_name.slice(0, 2).toUpperCase() : "DU"} index={1} size="lg" />
@@ -582,11 +699,88 @@ function Settings({ user, dark, setDark, onClose, onLogout }: { user: any; dark:
     <p className="section-label">Preferences</p>
     <div className="settings-list">
       <div><span className="settings-icon"><Icon name="moon" /></span><span><strong>Appearance</strong><small>{dark ? "Dark" : "Light"} theme</small></span><Switch checked={dark} onChange={() => setDark(!dark)} label="Toggle dark theme" /></div>
-      <button onClick={() => onClose()}><span className="settings-icon"><Icon name="lock" /></span><span><strong>Privacy</strong><small>Blocked contacts & read receipts</small></span><Icon name="chevron" /></button>
+      <button onClick={onPrivacy}><span className="settings-icon"><Icon name="lock" /></span><span><strong>Privacy</strong><small>Blocked contacts & read receipts</small></span><Icon name="chevron" /></button>
     </div>
     <button className="logout-button" onClick={onLogout}>Log out</button>
     <p className="version">Signal Clone · Fullstack Build 1.0</p>
   </div></Modal>;
+}
+
+function PrivacyModal({ user, onClose, onUserUpdate }: { user: any; onClose: () => void; onUserUpdate: (u: any) => void }) {
+  const currentSettings = user?.settings_json ? (typeof user.settings_json === "string" ? JSON.parse(user.settings_json) : user.settings_json) : {
+    read_receipts: true, typing_indicators: true, screen_lock_minutes: 0, hide_previews: false
+  };
+
+  const [settings, setSettings] = useState(currentSettings);
+  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.getBlocks().then(setBlockedUsers).catch(() => {});
+  }, []);
+
+  async function handleToggle(key: string, value: any) {
+    const updated = { ...settings, [key]: value };
+    setSettings(updated);
+    try {
+      const updatedUser = await api.updateMe({ settings_json: updated });
+      onUserUpdate(updatedUser);
+    } catch (e) {
+      console.error("Failed to update privacy settings", e);
+    }
+  }
+
+  async function handleUnblock(userId: number) {
+    try {
+      await api.unblockUser(userId);
+      setBlockedUsers((prev) => prev.filter((b) => b.blocked_id !== userId));
+    } catch (e) {
+      console.error("Failed to unblock", e);
+    }
+  }
+
+  return <Modal title="Privacy" onClose={onClose}>
+    <div className="settings-content" style={{ maxHeight: "75vh", overflowY: "auto" }}>
+      <p className="section-label">Messaging & Status</p>
+      <div className="settings-list">
+        <div>
+          <span className="settings-icon"><Icon name="check" /></span>
+          <span><strong>Read receipts</strong><small>Let others see when you read messages</small></span>
+          <Switch checked={!!settings.read_receipts} onChange={() => handleToggle("read_receipts", !settings.read_receipts)} label="Toggle read receipts" />
+        </div>
+        <div>
+          <span className="settings-icon"><Icon name="timer" /></span>
+          <span><strong>Typing indicators</strong><small>Show others when you are typing</small></span>
+          <Switch checked={!!settings.typing_indicators} onChange={() => handleToggle("typing_indicators", !settings.typing_indicators)} label="Toggle typing indicators" />
+        </div>
+      </div>
+
+      <p className="section-label">Security</p>
+      <div className="settings-list">
+        <div>
+          <span className="settings-icon"><Icon name="lock" /></span>
+          <span><strong>Hide message previews</strong><small>Hide sender and text in notifications</small></span>
+          <Switch checked={!!settings.hide_previews} onChange={() => handleToggle("hide_previews", !settings.hide_previews)} label="Toggle previews" />
+        </div>
+      </div>
+
+      <p className="section-label">Blocked Contacts ({blockedUsers.length})</p>
+      <div className="contact-list">
+        {blockedUsers.length === 0 ? (
+          <p style={{ color: "var(--color-text-secondary, #8e8e93)", padding: "12px", fontSize: "14px" }}>No blocked contacts</p>
+        ) : (
+          blockedUsers.map((b) => (
+            <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px" }}>
+              <span><strong>{b.blocked_user?.display_name || "User"}</strong> <small style={{ color: "var(--color-text-secondary)" }}>@{b.blocked_user?.username || b.blocked_user?.phone}</small></span>
+              <button className="text-button" style={{ color: "var(--color-danger, #ff3b30)", fontSize: "13px" }} onClick={() => handleUnblock(b.blocked_id)}>Unblock</button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <button className="primary-button" style={{ marginTop: "16px" }} onClick={onClose}>Done</button>
+    </div>
+  </Modal>;
 }
 
 function Onboarding({ screen, value, setValue, otp, setOtp, profileName, setProfileName, onContinue, onBack, onDemo }: {

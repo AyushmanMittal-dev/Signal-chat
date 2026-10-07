@@ -17,6 +17,10 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
+# 0. Start Microservices Database & Broker Tier
+echo "🐘 [*] Ensuring PostgreSQL and Redis are running..."
+docker compose up -d postgres redis 2>/dev/null
+
 # 1. Start Backend Server
 echo "📦 [1/2] Starting Backend (FastAPI on port 8000)..."
 cd "$SCRIPT_DIR/backend"

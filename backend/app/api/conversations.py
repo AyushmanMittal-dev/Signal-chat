@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -31,7 +32,7 @@ def _build_message_response(msg: Message) -> MessageResponse:
         status=msg.status,
         expires_at=msg.expires_at,
         deleted_at=msg.deleted_at,
-        created_at=msg.created_at,
+        created_at=msg.created_at.replace(tzinfo=timezone.utc) if msg.created_at and msg.created_at.tzinfo is None else msg.created_at,
         reactions=[ReactionResponse.model_validate(r) for r in msg.reactions],
         attachments=[AttachmentResponse.model_validate(a) for a in msg.attachments]
     )

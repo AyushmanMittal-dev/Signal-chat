@@ -7,6 +7,10 @@ echo ==================================================
 echo Starting Signal Clone Fullstack Platform...
 echo ==================================================
 
+:: Start Microservice Tier (PostgreSQL + Redis)
+echo [*] Ensuring Database & Broker services (PostgreSQL + Redis) are running...
+docker compose up -d postgres redis >nul 2>&1
+
 :: Start Backend
 echo [1/2] Starting Backend (FastAPI on port 8000)...
 start "Signal Backend (FastAPI)" cmd /k "cd /d "%~dp0backend" && .venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
